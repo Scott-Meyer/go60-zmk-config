@@ -1,151 +1,205 @@
 /*
- * Go60 keymap ported from ZSA Voyager layout (Oryx hashId zLQWY4 / "ben-vallack-qwerty-more-left")
+ * Go60 port of the ZSA Voyager layout "Ben Vallack QWERTY [More Left]"
+ * https://configure.zsa.io/voyager/layouts/JqwJB/latest/0  (revision eaL7MW)
  *
- * Main 4x6-per-half grid is a direct 1:1 port of the Voyager layers, including
- * home-row mods, layer-taps, and the custom dual-function bracket/punctuation keys.
+ * The reference for every binding below is the QMK source Oryx generates for that
+ * revision (https://oryx.zsa.io/source/eaL7MW), so behavior matches the firmware the
+ * Voyager actually runs, not just the labels in the configurator.
  *
- * The Go60 has 6 extra keys per half beyond the main grid (an upper row of 3 and a
- * thumb row of 3). The Voyager has no equivalent to the upper row, so it is &none
- * on every layer. Of the thumb row, only the two innermost keys carry the Voyager
- * thumb functions (left: the "shift"-labeled key = Voyager's tap-Space/hold-Hyper key,
- * the "control"-labeled key = Voyager's Left Shift; right: the "alt"-labeled key =
- * Voyager's Mouse Button 1, the "space"-labeled key = Voyager's Right GUI). The
- * remaining thumb key on each half (left "up arrow", right "enter") is &none.
+ * Physical mapping
+ *   - The Voyager's 4x6 grid per half maps 1:1 onto the Go60's 4x6 grid (R1-R4).
+ *   - Voyager thumbs (left k24 k25 | right k50 k51) sit on the two Go60 thumb keys
+ *     nearest the split: L_T2 L_T3 | R_T3 R_T2.
+ *   - Go60 keys with no Voyager counterpart (L_T1, R_T1, and the three R5 keys under
+ *     each half) are &none on every layer. So are the Voyager's own unassigned keys.
  *
- * DRAG_SCROLL from your Navigator trackball is reworked as a hold-to-scroll key
- * (the left half's spare "up arrow" thumb slot) that scopes the RIGHT trackpad
- * (your primary pointing hand) into scroll mode via input-processors, ZMK's
- * native equivalent -- see the &cirque_rh_listener override at the bottom.
- * The Navigator's CPI inc/dec keys have no equivalent (Go60's trackpad
- * sensitivity is a fixed build-time scaler, not runtime-adjustable) and are
- * left as &none on layer 5. RGB "mode forward" is approximated with
- * &rgb_ug RGB_EFF.
+ * Timing matches QMK defaults as Oryx compiles them: 200 ms tapping term, quick tap
+ * equal to the tapping term, no permissive hold, no hold-on-other-key-press. In ZMK
+ * terms that is the "tap-preferred" flavor.
+ *
+ * Navigator features, mapped onto the Go60 trackpads:
+ *   - Auto-mouse (AUTOMOUSE_LAYER 5, 650 ms): pointer motion turns on a copy of the
+ *     Mouse layer for 650 ms after the last motion, unless a key was pressed in the
+ *     prior 200 ms. It uses a copy (LAYER_MouseAuto) so the timeout never switches
+ *     off a Mouse layer you are holding with G/H.
+ *   - DRAG_SCROLL (hold) and TOGGLE_SCROLL turn the right trackpad into a scroll
+ *     surface, with the Navigator's SCROLL_INVERT_X/Y direction applied.
+ *   - NAVIGATOR_INC_CPI / DEC_CPI have no runtime equivalent on the Go60 and are &none.
+ *   - Trackpad speed and the left trackpad's scroll role keep the Go60 stock settings.
  */
 
 #include <behaviors.dtsi>
 
-#include <dt-bindings/zmk/bt.h>
+#include <dt-bindings/zmk/input_transform.h>
 #include <dt-bindings/zmk/keys.h>
-#include <dt-bindings/zmk/mouse.h>
+#include <dt-bindings/zmk/pointing.h>
 #include <dt-bindings/zmk/rgb.h>
 #include <input/processors.dtsi>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
 
-// layers (same numbering as the Voyager source, for easy cross-reference)
-#define LAYER_Base      0
-#define LAYER_Media     1
-#define LAYER_Sym       2
-#define LAYER_Sym2      3
-#define LAYER_FKeys     4
-#define LAYER_Mouse     5
-#define LAYER_Scroll    6
+// Layers 0-5 keep the Voyager's numbering.
+#define LAYER_Main       0
+#define LAYER_Shortcut   1
+#define LAYER_SymA       2
+#define LAYER_SymB       3
+#define LAYER_Layer      4
+#define LAYER_Mouse      5
+#define LAYER_MouseAuto  6
+#define LAYER_Scroll     7
+
+#define HYPER LC(LS(LA(LGUI)))
+
+#define AUTOMOUSE_TIMEOUT_MS 650
+
+// Navigator keycodes.
+#define DRAG_SCROLL   &mo LAYER_Scroll
+#define TOGGLE_SCROLL &tog LAYER_Scroll
+
+// Shared by the held Mouse layer (G/H) and the auto-mouse copy.
+#define MOUSE_LAYER_BINDINGS \
+    &trans  &trans  &trans  &trans  &trans  &trans          &trans  &trans  &trans  &trans  &trans  &none          \
+    &trans  &trans  &trans  &trans  &trans  &trans          &trans  &trans  &trans  &trans  &trans  &none          \
+    &trans  &trans  &trans  &trans  &trans  &trans          &trans  &trans  &trans  &trans  &trans  &trans         \
+    &trans  &trans  &trans  &trans  &trans  &trans          &trans  &trans  &trans  &trans  &trans  TOGGLE_SCROLL  \
+                    &none   &none   &none                           &none   &none   &none                          \
+                       &none  &trans  &trans                  &mkp LCLK  &mkp RCLK  &none
+
+&mt {
+    flavor = "tap-preferred";
+    tapping-term-ms = <200>;
+    quick-tap-ms = <200>;
+};
+
+&lt {
+    flavor = "tap-preferred";
+    tapping-term-ms = <200>;
+    quick-tap-ms = <200>;
+};
+
+// QMK caps word: letters are shifted; digits, _, -, Backspace and Delete keep it on.
+&caps_word {
+    continue-list = <UNDERSCORE MINUS BACKSPACE DELETE>;
+};
+
+&zip_temp_layer {
+    require-prior-idle-ms = <200>;
+};
 
 / {
+    input_processors {
+        // Same as the Go60 stock keymap: a tap on the left (scroll) trackpad is a right click.
+        zip_click_to_right_click_mapper: zip_click_to_right_click_mapper {
+            compatible = "zmk,input-processor-code-mapper";
+            #input-processor-cells = <0>;
+            type = <INPUT_EV_KEY>;
+            map = <INPUT_BTN_0 INPUT_BTN_1>;
+        };
+    };
+
     behaviors {
-        // Generic tap/hold pair: &ht <hold-binding> <tap-binding>
-        ht: hold_tap {
+        // Oryx "dual function" key: &dual <hold> <tap>, timed like LT().
+        dual: dual_function {
             compatible = "zmk,behavior-hold-tap";
             #binding-cells = <2>;
+            flavor = "tap-preferred";
             tapping-term-ms = <200>;
-            flavor = "balanced";
+            quick-tap-ms = <200>;
             bindings = <&kp>, <&kp>;
-        };
-
-        caps_word: caps_word {
-            compatible = "zmk,behavior-caps-word";
-            #binding-cells = <0>;
-            continue-list = <UNDERSCORE MINUS>;
         };
     };
 
     keymap {
         compatible = "zmk,keymap";
 
-        layer_Base {
+        layer_Main {
             bindings = <
-     &kp GRAVE  &kp N1              &kp N2              &kp N3              &kp N4              &kp N5                                                        &kp N6  &kp N7              &kp N8              &kp N9              &kp N0    &none
-      &kp TAB   &kp Q               &mt LCTRL W         &mt LALT E          &mt LGUI R          &kp T                                                         &kp Y   &mt RGUI U          &mt RALT I          &mt RCTRL O         &kp P     &none
-      &kp ESC   &lt LAYER_FKeys A   &lt LAYER_Sym2 S    &lt LAYER_Sym D     &lt LAYER_Media F   &lt LAYER_Mouse G                                             &lt LAYER_Mouse H  &lt LAYER_Media J   &lt LAYER_Sym K     &lt LAYER_Sym2 L    &lt LAYER_FKeys SEMI  &kp SQT
-   &caps_word   &kp Z               &kp X               &kp C               &kp V               &kp B                                                         &kp N   &kp M               &kp COMMA           &kp DOT             &kp FSLH  &none
-                                        &none  &none  &none                                                                                                                     &none  &none  &none
-                                                     &mo LAYER_Scroll  &ht LS(LC(LG(LALT))) SPACE  &kp LSHFT              &mkp LCLK  &kp RGUI  &none
+    &kp GRAVE   &kp N1               &kp N2               &kp N3               &kp N4                  &kp N5                 &kp N6                 &kp N7                  &kp N8               &kp N9               &kp N0                  &none
+    &kp TAB     &kp Q                &mt LCTRL W          &mt LALT E           &mt LGUI R              &kp T                  &kp Y                  &mt RGUI U              &mt RALT I           &mt RCTRL O          &kp P                   &none
+    &kp ESC     &lt LAYER_Layer A    &lt LAYER_SymB S     &lt LAYER_SymA D     &lt LAYER_Shortcut F    &lt LAYER_Mouse G      &lt LAYER_Mouse H      &lt LAYER_Shortcut J    &lt LAYER_SymA K     &lt LAYER_SymB L     &lt LAYER_Layer SEMI    &kp SQT
+    &caps_word  &kp Z                &kp X                &kp C                &kp V                   &kp B                  &kp N                  &kp M                   &kp COMMA            &kp DOT              &kp FSLH                &none
+                                     &none                &none                &none                                                                                         &none                &none                &none
+                                                   &none  &mt HYPER SPACE  &kp LSHFT                                                           &mkp LCLK  &kp RGUI  &none
             >;
         };
 
-        layer_Media {
+        layer_Shortcut {
             bindings = <
-    &kp C_VOL_UP    &trans  &trans  &trans  &trans  &trans                                              &trans  &kp C_PREV  &kp C_NEXT  &kp C_PP  &kp C_STOP  &trans
-    &kp C_VOL_DN    &trans  &kp LC(LS(TAB))  &kp LC(TAB)  &trans  &trans                                 &trans  &trans  &kp UP  &kp BSPC  &trans  &trans
-    &kp C_PP        &kp DEL  &trans  &none  &trans  &kp LG(LC(LS(N4)))                                  &trans  &kp LEFT  &kp DOWN  &kp RIGHT  &kp RET  &trans
-    &kp C_PREV      &kp C_NEXT  &kp LG(X)  &kp LG(C)  &kp LG(V)  &trans                                  &trans  &trans  &trans  &trans  &trans  &rgb_ug RGB_EFF
-                                        &none  &none  &none                                                                                                     &none  &none  &none
-                                                     &trans  &mkp LCLK  &mkp RCLK              &mkp LCLK  &mkp RCLK  &none
+    &kp C_VOL_UP  &trans       &trans          &trans        &trans      &trans                      &trans  &kp C_PREV  &kp C_NEXT  &kp C_PP   &kp C_STOP  &trans
+    &kp C_VOL_DN  &trans       &kp LC(LS(TAB)) &kp LC(TAB)   &trans      &trans                      &trans  &trans      &kp UP      &kp BSPC   &trans      &trans
+    &kp C_PP      &kp DEL      &trans          DRAG_SCROLL   &trans      &kp LG(LC(LS(N4)))          &trans  &kp LEFT    &kp DOWN    &kp RIGHT  &kp RET     &trans
+    &kp C_PREV    &kp C_NEXT   &kp LG(X)       &kp LG(C)     &kp LG(V)   &trans                      &trans  &trans      &trans      &trans     &trans      &rgb_ug RGB_EFF
+                               &none           &none         &none                                           &none       &none       &none
+                                                   &none  &mkp LCLK  &mkp RCLK                  &mkp LCLK  &mkp RCLK  &none
             >;
         };
 
-        layer_Sym {
+        layer_SymA {
             bindings = <
-    &trans  &trans  &trans  &trans  &trans  &trans                                             &trans  &trans  &trans  &trans  &trans  &trans
-    &trans  &kp EQUAL  &kp TILD  &kp HASH  &kp DLLR  &trans                                     &trans  &kp LT  &kp GT  &kp CARET  &trans  &trans
-    &trans  &kp GRAVE  &kp MINUS  &trans  &kp BSLH  &kp PLUS                                    &trans  &kp LBKT  &kp RBKT  &kp PIPE  &kp FSLH  &trans
-    &trans  &trans  &trans  &trans  &trans  &trans                                             &trans  &trans  &trans  &trans  &trans  &trans
-                                        &none  &none  &none                                                                                     &none  &none  &none
-                                                     &trans  &trans  &trans              &trans  &trans  &none
+    &trans  &trans      &trans      &trans      &trans      &trans                &trans  &trans      &trans      &trans      &trans      &trans
+    &trans  &kp EQUAL   &kp TILDE   &kp LS(N3)  &kp DLLR    &trans                &trans  &kp LS(COMMA) &kp LS(DOT) &kp CARET &trans      &trans
+    &trans  &kp GRAVE   &kp MINUS   &trans      &kp BSLH    &kp PLUS              &trans  &kp LBKT    &kp RBKT    &kp PIPE    &kp FSLH    &trans
+    &trans  &trans      &trans      &trans      &trans      &trans                &trans  &trans      &trans      &trans      &trans      &trans
+                        &none       &none       &none                                     &none       &none       &none
+                                         &none  &trans  &trans              &trans  &trans  &none
             >;
         };
 
-        layer_Sym2 {
+        layer_SymB {
             bindings = <
-    &trans  &trans  &trans  &trans  &trans  &trans                                             &trans  &trans  &trans  &trans  &trans  &trans
-    &trans  &trans  &kp AT  &ht LA(LS(RBKT)) LA(RBKT)  &ht LA(LS(LBKT)) LA(LBKT)  &trans          &trans  &kp LPAR  &kp RPAR  &kp SEMI  &trans  &trans
-    &trans  &kp STAR  &kp PRCNT  &ht QMARK EXCL  &kp DQT  &trans                                 &trans  &kp LBRC  &kp RBRC  &kp AMPS  &kp COLON  &trans
-    &trans  &trans  &trans  &trans  &trans  &trans                                             &trans  &trans  &trans  &trans  &trans  &trans
-                                        &none  &none  &none                                                                                     &none  &none  &none
-                                                     &trans  &trans  &trans              &trans  &trans  &none
+    &trans  &trans      &trans      &trans                           &trans                           &trans          &trans  &trans      &trans      &trans      &trans      &trans
+    &trans  &trans      &kp AT      &dual LA(LS(RBKT)) LA(RBKT)      &dual LA(LS(LBKT)) LA(LBKT)      &trans          &trans  &kp LPAR    &kp RPAR    &kp SEMI    &trans      &trans
+    &trans  &kp STAR    &kp PRCNT   &dual QMARK EXCL                 &kp DQT                          &trans          &trans  &kp LBRC    &kp RBRC    &kp AMPS    &kp COLON   &trans
+    &trans  &trans      &trans      &trans                           &trans                           &trans          &trans  &trans      &trans      &trans      &trans      &trans
+                        &none       &none                            &none                                                    &none       &none       &none
+                                         &none  &trans  &trans              &trans  &trans  &none
             >;
         };
 
-        layer_FKeys {
+        layer_Layer {
             bindings = <
-    &trans  &kp F1  &kp F2  &kp F3  &kp F4  &kp F5                                              &kp F6  &kp F7  &kp F8  &kp F9  &kp F10  &kp F11
-    &trans  &trans  &kp BSPC  &kp UP  &trans  &trans                                            &trans  &trans  &kp UP  &kp BSPC  &trans  &kp F12
-    &trans  &trans  &kp LEFT  &kp DOWN  &kp RIGHT  &kp RET                                       &trans  &kp LEFT  &kp DOWN  &kp RIGHT  &kp RET  &trans
-    &trans  &trans  &trans  &trans  &trans  &trans                                              &trans  &trans  &trans  &trans  &trans  &trans
-                                        &none  &none  &none                                                                                     &none  &none  &none
-                                                     &trans  &kp LCTRL  &trans              &trans  &trans  &none
+    &trans  &kp F1      &kp F2      &kp F3      &kp F4      &kp F5                &kp F6  &kp F7      &kp F8      &kp F9      &kp F10     &kp F11
+    &trans  &trans      &kp BSPC    &kp UP      &trans      &trans                &trans  &trans      &kp UP      &kp BSPC    &trans      &kp F12
+    &trans  &trans      &kp LEFT    &kp DOWN    &kp RIGHT   &kp RET               &trans  &kp LEFT    &kp DOWN    &kp RIGHT   &kp RET     &trans
+    &trans  &trans      &trans      &trans      &trans      &trans                &trans  &trans      &trans      &trans      &trans      &trans
+                        &none       &none       &none                                     &none       &none       &none
+                                         &none  &kp LCTRL  &trans           &trans  &trans  &none
             >;
         };
 
         layer_Mouse {
-            bindings = <
-    &trans  &trans  &trans  &trans  &trans  &trans                                              &trans  &trans  &trans  &trans  &trans  &none
-    &trans  &trans  &trans  &trans  &trans  &trans                                              &trans  &trans  &trans  &trans  &trans  &none
-    &trans  &trans  &trans  &trans  &trans  &trans                                              &trans  &trans  &trans  &trans  &trans  &trans
-    &trans  &trans  &trans  &trans  &trans  &trans                                              &trans  &trans  &trans  &trans  &trans  &none
-                                        &none  &none  &none                                                                                     &none  &none  &none
-                                                     &trans  &trans  &trans              &mkp LCLK  &mkp RCLK  &none
-            >;
+            bindings = <MOUSE_LAYER_BINDINGS>;
         };
 
+        layer_MouseAuto {
+            bindings = <MOUSE_LAYER_BINDINGS>;
+        };
+
+        // Only switches the right trackpad's input processing; every key falls through.
         layer_Scroll {
             bindings = <
-    &trans  &trans  &trans  &trans  &trans  &trans                                              &trans  &trans  &trans  &trans  &trans  &trans
-    &trans  &trans  &trans  &trans  &trans  &trans                                              &trans  &trans  &trans  &trans  &trans  &trans
-    &trans  &trans  &trans  &trans  &trans  &trans                                              &trans  &trans  &trans  &trans  &trans  &trans
-    &trans  &trans  &trans  &trans  &trans  &trans                                              &trans  &trans  &trans  &trans  &trans  &trans
-                                        &trans  &trans  &trans                                                                                  &trans  &trans  &trans
-                                                     &trans  &trans  &trans              &trans  &trans  &trans
+    &trans  &trans  &trans  &trans  &trans  &trans          &trans  &trans  &trans  &trans  &trans  &trans
+    &trans  &trans  &trans  &trans  &trans  &trans          &trans  &trans  &trans  &trans  &trans  &trans
+    &trans  &trans  &trans  &trans  &trans  &trans          &trans  &trans  &trans  &trans  &trans  &trans
+    &trans  &trans  &trans  &trans  &trans  &trans          &trans  &trans  &trans  &trans  &trans  &trans
+                    &trans  &trans  &trans                          &trans  &trans  &trans
+                       &trans  &trans  &trans                  &trans  &trans  &trans
             >;
         };
     };
 };
 
-// Hold-to-scroll: while LAYER_Scroll is active (left spare thumb key held),
-// the right trackpad -- your primary pointing hand -- reports scroll events
-// instead of cursor movement, mirroring the Navigator's DRAG_SCROLL toggle.
+// Right trackpad: stock 3x pointer. While LAYER_Scroll is on it scrolls instead,
+// with the Navigator's inverted direction (motion down = wheel down, right = pan right).
 &cirque_rh_listener {
-    input-processors = <&zip_xy_scaler 3 1>;
-    layer_scroll {
+    input-processors = <&zip_xy_scaler 3 1>, <&zip_temp_layer LAYER_MouseAuto AUTOMOUSE_TIMEOUT_MS>;
+
+    drag_scroll {
         layers = <LAYER_Scroll>;
-        input-processors = <&zip_xy_to_scroll_mapper>, <&zip_xy_scaler 1 8>;
+        input-processors = <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>, <&zip_xy_to_scroll_mapper>, <&zip_xy_scaler 1 8>, <&zip_temp_layer LAYER_MouseAuto AUTOMOUSE_TIMEOUT_MS>;
     };
+};
+
+// Left trackpad: stock scroll surface, tap = right click.
+&cirque_lh_listener {
+    input-processors = <&zip_xy_to_scroll_mapper>, <&zip_xy_scaler 1 8>, <&zip_click_to_right_click_mapper>, <&zip_temp_layer LAYER_MouseAuto AUTOMOUSE_TIMEOUT_MS>;
 };
