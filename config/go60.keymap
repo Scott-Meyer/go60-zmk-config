@@ -22,10 +22,13 @@
  *     Mouse layer for 650 ms after the last motion, unless a key was pressed in the
  *     prior 200 ms. It uses a copy (LAYER_MouseAuto) so the timeout never switches
  *     off a Mouse layer you are holding with G/H.
- *   - DRAG_SCROLL (hold) and TOGGLE_SCROLL turn the right trackpad into a scroll
- *     surface, with the Navigator's SCROLL_INVERT_X/Y direction applied.
+ *   - Both trackpads act like the single Navigator: they move the pointer (at the
+ *     Go60 stock 3x speed) and scroll only while DRAG_SCROLL is held or TOGGLE_SCROLL
+ *     is on, with the Navigator's SCROLL_INVERT_X/Y direction.
+ *   - Scroll speed keeps the Navigator's ratio to pointer speed: NAVIGATOR_SCROLL_DIVIDER
+ *     is 50, so scroll = pointer counts / 50 = raw x 3/50. QMK's scroll acceleration
+ *     has no ZMK equivalent, so fast swipes scroll a little slower than on the Voyager.
  *   - NAVIGATOR_INC_CPI / DEC_CPI have no runtime equivalent on the Go60 and are &none.
- *   - Trackpad speed and the left trackpad's scroll role keep the Go60 stock settings.
  */
 
 #include <behaviors.dtsi>
@@ -86,16 +89,6 @@
 };
 
 / {
-    input_processors {
-        // Same as the Go60 stock keymap: a tap on the left (scroll) trackpad is a right click.
-        zip_click_to_right_click_mapper: zip_click_to_right_click_mapper {
-            compatible = "zmk,input-processor-code-mapper";
-            #input-processor-cells = <0>;
-            type = <INPUT_EV_KEY>;
-            map = <INPUT_BTN_0 INPUT_BTN_1>;
-        };
-    };
-
     behaviors {
         // Oryx "dual function" key: &dual <hold> <tap>, timed like LT().
         dual: dual_function {
@@ -188,18 +181,25 @@
     };
 };
 
-// Right trackpad: stock 3x pointer. While LAYER_Scroll is on it scrolls instead,
-// with the Navigator's inverted direction (motion down = wheel down, right = pan right).
-&cirque_rh_listener {
-    input-processors = <&zip_xy_scaler 3 1>, <&zip_temp_layer LAYER_MouseAuto AUTOMOUSE_TIMEOUT_MS>;
-
-    drag_scroll {
-        layers = <LAYER_Scroll>;
-        input-processors = <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>, <&zip_xy_to_scroll_mapper>, <&zip_xy_scaler 1 8>, <&zip_temp_layer LAYER_MouseAuto AUTOMOUSE_TIMEOUT_MS>;
+// Both trackpads behave like the Navigator (see header).
+#define POINTER_MUL 3
+#define NAVIGATOR_SCROLL_DIVIDER 50
+#define TRACKPAD_LISTENER_CONFIG                                                          \
+    input-processors = <&zip_xy_scaler POINTER_MUL 1>,                                    \
+                       <&zip_temp_layer LAYER_MouseAuto AUTOMOUSE_TIMEOUT_MS>;            \
+    drag_scroll {                                                                         \
+        layers = <LAYER_Scroll>;                                                          \
+        /* The scroll scaler must follow the mapper: it only matches wheel codes. */      \
+        input-processors = <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>,                  \
+                           <&zip_xy_to_scroll_mapper>,                                    \
+                           <&zip_scroll_scaler POINTER_MUL NAVIGATOR_SCROLL_DIVIDER>,     \
+                           <&zip_temp_layer LAYER_MouseAuto AUTOMOUSE_TIMEOUT_MS>;        \
     };
+
+&cirque_rh_listener {
+    TRACKPAD_LISTENER_CONFIG
 };
 
-// Left trackpad: stock scroll surface, tap = right click.
 &cirque_lh_listener {
-    input-processors = <&zip_xy_to_scroll_mapper>, <&zip_xy_scaler 1 8>, <&zip_click_to_right_click_mapper>, <&zip_temp_layer LAYER_MouseAuto AUTOMOUSE_TIMEOUT_MS>;
+    TRACKPAD_LISTENER_CONFIG
 };
